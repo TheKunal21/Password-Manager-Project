@@ -226,9 +226,8 @@ def delete_password(site, username):
         print("Site not found.")
 
 
-# -----------------------------------------------
-# GUI SECTION
-# -----------------------------------------------
+
+# GUI part from here . 
 
 def gui_main():
     app = ttk.Window(title="Password Manager", themename="superhero", size=(400, 300))
