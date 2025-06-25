@@ -3,9 +3,6 @@ import getpass
 from cryptography.fernet import Fernet
 import os
 import json
-import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
-from tkinter import messagebox
 
 password_manager = {}
 

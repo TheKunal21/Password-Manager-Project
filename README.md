@@ -50,6 +50,8 @@ Run the script:python project.py
 
 🛠️ What I Might Add Next
 
+GUI
+
 Password strength meter
 
 Option to back up/export saved data
