@@ -121,7 +121,9 @@ def login_account():
         and password_manager[username]["password"] == hashed_password
     ):
         print("Welcome, your login is successful!")
-        password_manager_function(username)  # Pass username to link the password manager
+        password_manager_function(
+            username
+        )  # Pass username to link the password manager
     else:
         print("Invalid username or password")
 
@@ -167,7 +169,9 @@ def password_manager_function(username):
                 print("Site and password cannot be empty.")
 
         elif action == "2":
-            site = input("Enter the site name to retrieve your password: ").strip().lower()
+            site = (
+                input("Enter the site name to retrieve your password: ").strip().lower()
+            )
             if site in password_manager[username]["sites"]:
                 encrypted_password = password_manager[username]["sites"][site]
                 decrypted = fernet.decrypt(encrypted_password.encode()).decode()
@@ -226,23 +230,37 @@ def delete_password(site, username):
         print("Site not found.")
 
 
+from ttkbootstrap.window import Window
+from tkinter import messagebox
+import hashlib
+import os
+from tkinter import simpledialog
+from cryptography.fernet import Fernet
 
-# GUI part from here . 
+# Assume these are already defined and working
+password_manager = {}
+def save_accounts(): pass
+def storing_master_hash(hashed): pass
+def verify_master_password(password): return True
+
+app = Window(title="Password Manager", themename="superhero", size=(500, 400))
+
 
 def gui_main():
-    app = ttk.Window(title="Password Manager", themename="superhero", size=(400, 300))
+    app.eval("tk::PlaceWindow . center")
 
-    def create_master_gui():
-        # Clear window
+    def clear_widgets():
         for widget in app.winfo_children():
             widget.destroy()
 
-        ttk.Label(
-            app, text="Create Master Password", font=("Helvetica", 14), bootstyle="warning"
-        ).pack(pady=(20, 10))
+    def create_master_gui():
+        clear_widgets()
+        frame = ttk.Frame(app)
+        frame.place(relx=0.5, rely=0.5, anchor="center")
 
-        password_entry = ttk.Entry(app, show="*", width=30)
-        password_entry.pack(pady=5)
+        ttk.Label(frame, text="Create Master Password", font=("Helvetica", 16), bootstyle="warning").pack(pady=10)
+        password_entry = ttk.Entry(frame, show="*", font=("Helvetica", 14), width=25)
+        password_entry.pack(pady=10)
 
         def save_master():
             password = password_entry.get().strip()
@@ -252,24 +270,19 @@ def gui_main():
             hashed = hashlib.sha256(password.encode()).hexdigest()
             storing_master_hash(hashed)
             messagebox.showinfo("Success", "Master password created!")
-            app.destroy()
+            app.withdraw()
             gui_account_screen()
 
-        ttk.Button(
-            app, text="Save Master Password", command=save_master, bootstyle="success"
-        ).pack(pady=15)
+        ttk.Button(frame, text="Save Master Password", command=save_master, bootstyle="success", width=25).pack(pady=15)
 
     def verify_master_gui():
-        # Clear window
-        for widget in app.winfo_children():
-            widget.destroy()
+        clear_widgets()
+        frame = ttk.Frame(app)
+        frame.place(relx=0.5, rely=0.5, anchor="center")
 
-        ttk.Label(
-            app, text="Enter Master Password", font=("Helvetica", 14), bootstyle="warning"
-        ).pack(pady=(20, 10))
-
-        password_entry = ttk.Entry(app, show="*", width=30)
-        password_entry.pack(pady=5)
+        ttk.Label(frame, text="Enter Master Password", font=("Helvetica", 16), bootstyle="warning").pack(pady=10)
+        password_entry = ttk.Entry(frame, show="*", font=("Helvetica", 14), width=25)
+        password_entry.pack(pady=10)
 
         def check_master():
             entered = password_entry.get().strip()
@@ -277,259 +290,160 @@ def gui_main():
                 messagebox.showerror("Error", "Incorrect master password")
             else:
                 messagebox.showinfo("Success", "Welcome back!")
-                app.destroy()
+                app.withdraw()
                 gui_account_screen()
 
-        ttk.Button(app, text="Login", command=check_master, bootstyle="success").pack(pady=15)
+        ttk.Button(frame, text="Login", command=check_master, bootstyle="success", width=25).pack(pady=15)
 
-    ttk.Label(
-        app, text="Password Manager", font=("Helvetica", 16), bootstyle="info"
-    ).pack(pady=(30, 10))
-
+    ttk.Label(app, text="Password Manager", font=("Helvetica", 20), bootstyle="info").pack(pady=30)
     if not os.path.exists("master.hash"):
         create_master_gui()
     else:
         verify_master_gui()
-
     app.mainloop()
 
 
 def gui_account_screen():
-    account_app = ttk.Window(
-        title="Your Personal Account", themename="superhero", size=(400, 300)
-    )
-    account_app.columnconfigure(0, weight=1)
+    account_app = Window(title="Account Login", themename="superhero", size=(500, 400))
+    account_app.eval("tk::PlaceWindow . center")
+    frame = ttk.Frame(account_app)
+    frame.place(relx=0.5, rely=0.5, anchor="center")
 
-    ttk.Label(
-        account_app,
-        text="Account Portal",
-        font=("Helvetica", 16),
-        bootstyle="info",
-    ).grid(row=0, column=0, pady=(20, 10))
+    ttk.Label(frame, text="Account Portal", font=("Helvetica", 18), bootstyle="info").pack(pady=20)
 
-    def create_account_gui():
-        create_win = ttk.Toplevel(account_app)
-        create_win.title("Create Account")
-        create_win.geometry("300x200")
-        create_win.columnconfigure(0, weight=1)
+    ttk.Button(frame, text="Create New Account", command=lambda: create_account_gui(account_app), bootstyle="primary", width=30).pack(pady=10)
+    ttk.Button(frame, text="Login to Account", command=lambda: login_account_gui(account_app), bootstyle="success", width=30).pack(pady=10)
 
-        ttk.Label(create_win, text="Username", font=("Helvetica", 12)).pack(pady=(10, 5))
-        username_entry = ttk.Entry(create_win, width=30)
-        username_entry.pack(pady=5)
 
-        ttk.Label(create_win, text="Password", font=("Helvetica", 12)).pack(pady=(10, 5))
-        password_entry = ttk.Entry(create_win, show="*", width=30)
-        password_entry.pack(pady=5)
 
-        def save_account():
-            username = username_entry.get().strip()
-            password = password_entry.get().strip()
+def create_account_gui(parent):
+    win = ttk.Toplevel(parent)
+    win.title("Create Account")
+    win.geometry("350x250")
+    win.eval("tk::PlaceWindow . center")
 
-            if not username or not password:
-                messagebox.showerror("Error", "Fields cannot be empty.")
-                return
-            if username in password_manager:
-                messagebox.showerror("Error", "Username already exists.")
-                return
-            hashed_password = hashlib.sha256(password.encode()).hexdigest()
-            password_manager[username] = {"password": hashed_password, "sites": {}}
-            save_accounts()
-            messagebox.showinfo("Success", "Account created.")
-            create_win.destroy()
+    frame = ttk.Frame(win)
+    frame.place(relx=0.5, rely=0.5, anchor="center")
 
-        ttk.Button(
-            create_win, text="Create", command=save_account, bootstyle="success"
-        ).pack(pady=(15, 5))
+    ttk.Label(frame, text="Username", font=("Helvetica", 12)).pack(pady=5)
+    username_entry = ttk.Entry(frame, width=30)
+    username_entry.pack(pady=5)
 
-    def login_account_gui():
-        login_win = ttk.Toplevel(account_app)
-        login_win.title("Login")
-        login_win.geometry("300x200")
-        login_win.columnconfigure(0, weight=1)
+    ttk.Label(frame, text="Password", font=("Helvetica", 12)).pack(pady=5)
+    password_entry = ttk.Entry(frame, show="*", width=30)
+    password_entry.pack(pady=5)
 
-        ttk.Label(login_win, text="Username", font=("Helvetica", 12)).pack(pady=(10, 5))
-        username_entry = ttk.Entry(login_win, width=30)
-        username_entry.pack(pady=5)
+    def save():
+        username = username_entry.get().strip()
+        password = password_entry.get().strip()
+        if not username or not password:
+            messagebox.showerror("Error", "Fields cannot be empty.")
+            return
+        if username in password_manager:
+            messagebox.showerror("Error", "Username already exists.")
+            return
+        password_manager[username] = {
+            "password": hashlib.sha256(password.encode()).hexdigest(),
+            "sites": {},
+        }
+        save_accounts()
+        messagebox.showinfo("Success", "Account created.")
+        win.destroy()
 
-        ttk.Label(login_win, text="Password", font=("Helvetica", 12)).pack(pady=(10, 5))
-        password_entry = ttk.Entry(login_win, show="*", width=30)
-        password_entry.pack(pady=5)
+    ttk.Button(frame, text="Create", command=save, bootstyle="success", width=25).pack(pady=15)
 
-        def do_login():
-            username = username_entry.get().strip()
-            password = password_entry.get().strip()
-            hashed = hashlib.sha256(password.encode()).hexdigest()
-            if (
-                username in password_manager
-                and password_manager[username]["password"] == hashed
-            ):
-                messagebox.showinfo("Login successful", f"Welcome, {username}!")
-                login_win.destroy()
-                account_app.destroy()
-                gui_password_manager_function(username)
-            else:
-                messagebox.showerror("Login Failed", "Invalid Credentials.")
 
-        ttk.Button(
-            login_win, text="Login", command=do_login, bootstyle="success"
-        ).pack(pady=(15, 5))
+def login_account_gui(parent):
+    win = ttk.Toplevel(parent)
+    win.title("Login")
+    win.geometry("350x250")
+    win.eval("tk::PlaceWindow . center")
 
-    # Centering the two buttons
-    button_frame = ttk.Frame(account_app)
-    button_frame.grid(row=1, column=0, pady=20)
-    button_frame.columnconfigure((0, 1), weight=1, uniform="a")
+    frame = ttk.Frame(win)
+    frame.place(relx=0.5, rely=0.5, anchor="center")
 
-    ttk.Button(
-        button_frame,
-        text="Create New Account",
-        command=create_account_gui,
-        bootstyle="primary",
-    ).grid(row=0, column=0, padx=10, sticky="ew")
-    ttk.Button(
-        button_frame,
-        text="Login to Account",
-        command=login_account_gui,
-        bootstyle="success",
-    ).grid(row=0, column=1, padx=10, sticky="ew")
+    ttk.Label(frame, text="Username", font=("Helvetica", 12)).pack(pady=5)
+    username_entry = ttk.Entry(frame, width=30)
+    username_entry.pack(pady=5)
 
-    account_app.mainloop()
+    ttk.Label(frame, text="Password", font=("Helvetica", 12)).pack(pady=5)
+    password_entry = ttk.Entry(frame, show="*", width=30)
+    password_entry.pack(pady=5)
+
+    def login():
+        username = username_entry.get().strip()
+        password = password_entry.get().strip()
+        hashed = hashlib.sha256(password.encode()).hexdigest()
+        if username in password_manager and password_manager[username]["password"] == hashed:
+            messagebox.showinfo("Login", f"Welcome, {username}!")
+            win.destroy()
+            parent.destroy()
+            gui_password_manager_function(username)
+        else:
+            messagebox.showerror("Failed", "Invalid credentials.")
+
+    ttk.Button(frame, text="Login", command=login, bootstyle="success", width=25).pack(pady=15)
 
 
 def gui_password_manager_function(username):
-    fernet = Fernet(load_key())
+    win = ttk.Toplevel(app)
+    win.title(f"Welcome {username}")
+    win.geometry("600x400")
+    win.eval("tk::PlaceWindow . center")
 
-    vault = ttk.Window(
-        title=f"{username}'s Vault", themename="superhero", size=(450, 400)
-    )
-    vault.columnconfigure(0, weight=1)
-
-    ttk.Label(
-        vault,
-        text=f"Welcome, {username}",
-        font=("Helvetica", 16),
-        bootstyle="success",
-    ).grid(row=0, column=0, pady=(20, 10))
-
-    # ---------------------------
-    # SAVE & UPDATE FRAME
-    # ---------------------------
-    frame_save_update = ttk.Frame(vault)
-    frame_save_update.grid(row=1, column=0, pady=10, sticky="nsew")
-    frame_save_update.columnconfigure((0, 1), weight=1, uniform="a")
+    frame = ttk.Frame(win)
+    frame.place(relx=0.5, rely=0.5, anchor="center")
 
     ttk.Label(
-        frame_save_update, text="Site Name", font=("Helvetica", 12), bootstyle="secondary"
-    ).grid(row=0, column=0, padx=5, sticky="e")
-    site_entry_save = ttk.Entry(frame_save_update, width=25)
-    site_entry_save.grid(row=0, column=1, padx=5, sticky="w")
-
-    ttk.Label(
-        frame_save_update, text="Password", font=("Helvetica", 12), bootstyle="secondary"
-    ).grid(row=1, column=0, padx=5, sticky="e")
-    password_entry_save = ttk.Entry(frame_save_update, show="*", width=25)
-    password_entry_save.grid(row=1, column=1, padx=5, sticky="w")
-
-    def save_password_gui():
-        site = site_entry_save.get().strip().lower()
-        pwd = password_entry_save.get().strip()
-        if site and pwd:
-            encrypted = fernet.encrypt(pwd.encode()).decode()
-            password_manager[username]["sites"][site] = encrypted
-            save_accounts()
-            messagebox.showinfo("Saved", f"Password for '{site}' saved!")
-            site_entry_save.delete(0, "end")
-            password_entry_save.delete(0, "end")
-        else:
-            messagebox.showerror("Error", "Site and password cannot be empty!")
-
-    def update_password_gui():
-        site = site_entry_save.get().strip().lower()
-        if not site:
-            messagebox.showerror("Error", "Site name cannot be empty.")
-            return
-
-        if site in password_manager[username]["sites"]:
-            new_pwd = password_entry_save.get().strip()
-            if not new_pwd:
-                messagebox.showerror("Error", "New password cannot be empty.")
-                return
-            encrypted = fernet.encrypt(new_pwd.encode()).decode()
-            password_manager[username]["sites"][site] = encrypted
-            save_accounts()
-            messagebox.showinfo("Updated", f"Password for '{site}' updated.")
-            site_entry_save.delete(0, "end")
-            password_entry_save.delete(0, "end")
-        else:
-            messagebox.showwarning("Site not found", f"No entry for '{site}' exists.")
+        frame, text=f"Hello, {username}!",
+        font=("Helvetica", 18),
+        bootstyle="info"
+    ).pack(pady=20)
 
     ttk.Button(
-        frame_save_update, text="Save", command=save_password_gui, bootstyle="success"
-    ).grid(row=2, column=0, pady=10, sticky="ew", padx=5)
-    ttk.Button(
-        frame_save_update, text="Update", command=update_password_gui, bootstyle="warning"
-    ).grid(row=2, column=1, pady=10, sticky="ew", padx=5)
-
-    # ---------------------------
-    # RETRIEVE & DELETE FRAME
-    # ---------------------------
-    frame_retrieve_delete = ttk.Frame(vault)
-    frame_retrieve_delete.grid(row=2, column=0, pady=10, sticky="nsew")
-    frame_retrieve_delete.columnconfigure((0, 1), weight=1, uniform="b")
-
-    ttk.Label(
-        frame_retrieve_delete, text="Site Name", font=("Helvetica", 12), bootstyle="secondary"
-    ).grid(row=0, column=0, padx=5, sticky="e")
-    site_entry_manage = ttk.Entry(frame_retrieve_delete, width=25)
-    site_entry_manage.grid(row=0, column=1, padx=5, sticky="w")
-
-    def retrieve_password_gui():
-        site = site_entry_manage.get().strip().lower()
-        if not site:
-            messagebox.showerror("Error", "Site name cannot be empty.")
-            return
-
-        if site in password_manager[username]["sites"]:
-            encrypted = password_manager[username]["sites"][site]
-            decrypted = fernet.decrypt(encrypted.encode()).decode()
-            messagebox.showinfo("Retrieved", f"Password for '{site}':\n{decrypted}")
-            site_entry_manage.delete(0, "end")
-        else:
-            messagebox.showwarning("Not found", f"No entry for '{site}' exists.")
-
-    def delete_password_gui():
-        site = site_entry_manage.get().strip().lower()
-        if not site:
-            messagebox.showerror("Error", "Site name cannot be empty.")
-            return
-
-        if site in password_manager[username]["sites"]:
-            del password_manager[username]["sites"][site]
-            save_accounts()
-            messagebox.showinfo("Deleted", f"Password for '{site}' deleted.")
-            site_entry_manage.delete(0, "end")
-        else:
-            messagebox.showwarning("Not found", f"No entry for '{site}' exists.")
+        frame, text="View Saved Passwords",
+        bootstyle="primary", width=30,
+        command=lambda: view_passwords(win, username)
+    ).pack(pady=5)
 
     ttk.Button(
-        frame_retrieve_delete, text="Retrieve", command=retrieve_password_gui, bootstyle="info"
-    ).grid(row=1, column=0, pady=10, sticky="ew", padx=5)
+        frame, text="Add New Password",
+        bootstyle="success", width=30,
+        command=lambda: add_password(win, username)
+    ).pack(pady=5)
+
     ttk.Button(
-        frame_retrieve_delete, text="Delete", command=delete_password_gui, bootstyle="danger"
-    ).grid(row=1, column=1, pady=10, sticky="ew", padx=5)
+        frame, text="Delete Password",
+        bootstyle="danger", width=30,
+        command=lambda: delete_password(win, username)
+    ).pack(pady=5)
 
-    # ---------------------------
-    # Logout button
-    # ---------------------------
-    ttk.Button(
-        vault, text="Logout", command=vault.destroy, bootstyle="secondary"
-    ).grid(row=3, column=0, pady=(20, 10), sticky="ew", padx=50)
 
-    vault.mainloop()
+# Dummy password manager actions
+def view_passwords(win, username):
+    sites = password_manager[username].get("sites", {})
+    if not sites:
+        messagebox.showinfo("Passwords", "No passwords saved.")
+        return
+    info = "\n".join([f"{site}: {cred}" for site, cred in sites.items()])
+    messagebox.showinfo("Saved Passwords", info)
 
+def add_password(win, username):
+    site = simpledialog.askstring("Add Site", "Enter site name:", parent=win)
+    password = simpledialog.askstring("Add Password", "Enter password:", parent=win, show="*")
+    if site and password:
+        password_manager[username]["sites"][site] = password
+        save_accounts()
+        messagebox.showinfo("Added", f"Password saved for {site}")
+
+def delete_password(win, username):
+    site = simpledialog.askstring("Delete Site", "Enter site name to delete:", parent=win)
+    if site and site in password_manager[username]["sites"]:
+        del password_manager[username]["sites"][site]
+        save_accounts()
+        messagebox.showinfo("Deleted", f"Password for {site} deleted")
+    else:
+        messagebox.showerror("Error", "Site not found.")
 
 if __name__ == "__main__":
-    choice = input("Type 'gui' for GUI or 'cli' for command line: ").strip().lower()
-    if choice == "gui":
-        gui_main()
-    else:
-        main()
+    gui_main()
