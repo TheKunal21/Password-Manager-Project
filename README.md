@@ -1,7 +1,7 @@
                                             🔐 Password Manager
 
 
-VIDEO DEMO URL : https://youtu.be/hDBWixbLe4U
+VIDEO DEMO URL : https://youtu.be/hDBWixbLe4U , This video is related to the GUI option in my project. I removed the GUI feature due to some interface-related bugs, but I will definitely fix those issues and reintroduce it in the future.
 
 📖 DESCRIPTION:
 This is a Password Manager I built using Python. The main idea is simple: securely store passwords for different websites, protected by a master password. Every user gets their own account, and once you're logged in, you can save, view, update, or delete your saved passwords. i used pip list to copy and paste stuff in requirement.txt.
