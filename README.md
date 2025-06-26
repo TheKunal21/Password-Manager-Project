@@ -50,7 +50,7 @@ Run the script:python project.py
 
 🛠️ What I Might Add Next
 
-GUI
+GUI 
 
 Password strength meter
 
