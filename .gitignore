@@ -1,5 +1,32 @@
-# ignore these files 
-venv
-__pycache__
-.pytest_cache
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# Sensitive data — NEVER commit these
+data.json
+data.json.tmp
+data.json.lock
+accounts.json
+accounts.json.tmp
+master.hash
+key.key
+vault.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
 

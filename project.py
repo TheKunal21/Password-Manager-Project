@@ -1,230 +1,239 @@
-import hashlib
-import getpass
-from cryptography.fernet import Fernet
-import os
-import json
+"""
+project.py — Secure Password Manager (CLI Interface)
 
-password_manager = {}
+A thin command-line interface that delegates all business logic
+to the core/ package modules.
+"""
+
+import getpass
+
+from core.storage import load_data, save_data, load_master_hash, store_master_hash
+from core.auth import hash_password, verify_password, register_user, authenticate_user
+from core.vault import (
+    add_credential, get_credential, list_credential_sites,
+    update_credential, delete_credential,
+)
+from core.password_utils import check_password_strength, generate_password, validate_username
 
 
 def main():
-    global password_manager
-    password_manager = load_accounts()
-
-    try:
-        with open("master.hash", "r") as file:
-            saved_hash = file.read().strip()
-    except FileNotFoundError:
-        saved_hash = None
-
+    saved_hash = load_master_hash()
     if saved_hash is None:
-        print("No master password found, please create one.")
+        print("No master password found. Please create one.")
         create_master_password()
     else:
-        print("Master password found, please enter it to proceed.")
-        entered_password = getpass.getpass("Enter master password: ").strip()
-        if not verify_master_password(entered_password):
-            print("Master password verification failed. Exiting.")
-            return
+        print("Master password found. Please enter it to proceed.")
+        for attempt in range(3):
+            entered = getpass.getpass("Enter master password: ").strip()
+            if verify_password(entered, saved_hash):
+                print("Master password verified.")
+                break
+            remaining = 2 - attempt
+            if remaining > 0:
+                print(f"Incorrect. {remaining} attempt(s) remaining.")
+            else:
+                print("Too many failed attempts. Exiting.")
+                return
 
-    generate_key()
-
-    # If master password was verified or created, go to account menu
     while True:
-        choice = input("For create account enter 1, 2 for login, 0 for exit: ").strip()
+        print("\n--- Main Menu ---")
+        print("1. Create account")
+        print("2. Login")
+        print("0. Exit")
+        choice = input("Choice: ").strip()
         if choice == "1":
-            create_account()
+            data = load_data()
+            create_account(data)
         elif choice == "2":
-            login_account()
+            data = load_data()
+            login_account(data)
         elif choice == "0":
-            break
-        else:
-            print("Invalid choice, try again.")
-
-
-# Load or initialize the accounts data from 'accounts.json'
-def load_accounts():
-    if os.path.exists("accounts.json"):
-        with open("accounts.json", "r") as file:
-            content = file.read().strip()
-            if content:  # Only load if there's content
-                return json.loads(content)
-    return {}
-
-
-# Save the accounts data to 'accounts.json'
-def save_accounts():
-    with open("accounts.json", "w") as file:
-        json.dump(password_manager, file, indent=4)
-
-
-def create_master_password():
-    while True:
-        master_password = getpass.getpass("Create your master password: ").strip()
-        if not master_password:
-            print("Password cannot be empty. Try again.")
-        else:
-            break
-    hashed = hashlib.sha256(master_password.encode()).hexdigest()
-    storing_master_hash(hashed)
-    print("Master password created and saved successfully.")
-
-
-def verify_master_password(entered_password):
-    try:
-        with open("master.hash", "r") as file:
-            saved_hash = file.read().strip()
-    except FileNotFoundError:
-        return False  # No master password exists
-
-    hashed = hashlib.sha256(entered_password.encode()).hexdigest()
-    return hashed == saved_hash
-
-
-def create_account():
-    username = input("Enter your username: ").strip()
-    if not username:
-        print("Username cannot be empty.")
-        return
-
-    if username in password_manager:
-        print("Username already exists. Please choose another.")
-        return
-
-    password = getpass.getpass("Enter your password please: ").strip()
-    if not password:
-        print("Password cannot be empty.")
-        return
-
-    hashed_password = hashlib.sha256(password.encode()).hexdigest()
-
-    # Store account in password_manager with username and hashed password
-    password_manager[username] = {
-        "password": hashed_password,
-        "sites": {},  # Store passwords for sites here
-    }
-    save_accounts()
-    print("Account created successfully")
-
-
-def login_account():
-    username = input("Enter your username: ").strip()
-    password = getpass.getpass("Enter your password: ").strip()
-    hashed_password = hashlib.sha256(password.encode()).hexdigest()
-
-    # Check if username exists and password matches
-    if (
-        username in password_manager
-        and password_manager[username]["password"] == hashed_password
-    ):
-        print("Welcome, your login is successful!")
-        password_manager_function(
-            username
-        )  # Pass username to link the password manager
-    else:
-        print("Invalid username or password")
-
-
-def storing_master_hash(hash_str):
-    with open("master.hash", "w") as file:
-        file.write(hash_str)
-
-
-def generate_key():
-    if not os.path.exists("key.key"):
-        key = Fernet.generate_key()
-        with open("key.key", "wb") as file:
-            file.write(key)
-        print("Encryption key generated and saved to key.key.")
-    else:
-        print("Key already exists. Skipping generation.")
-
-
-def load_key():
-    with open("key.key", "rb") as file:
-        return file.read()
-
-
-# Password manager function with user-specific site passwords
-def password_manager_function(username):
-    fernet = Fernet(load_key())
-    while True:
-        action = input(
-            "Press 1 to save, 2 to retrieve, 3 to delete , 4 to update  , 0 to logout: "
-        ).strip()
-
-        if action == "1":
-            site = input("Enter the site name: ").strip().lower()
-            site_password = getpass.getpass("Enter the password: ").strip()
-            if site and site_password:
-                encrypted = fernet.encrypt(site_password.encode()).decode()
-                # Save the password under the user’s username
-                password_manager[username]["sites"][site] = encrypted
-                save_accounts()
-                print("Password successfully secured!")
-            else:
-                print("Site and password cannot be empty.")
-
-        elif action == "2":
-            site = (
-                input("Enter the site name to retrieve your password: ").strip().lower()
-            )
-            if site in password_manager[username]["sites"]:
-                encrypted_password = password_manager[username]["sites"][site]
-                decrypted = fernet.decrypt(encrypted_password.encode()).decode()
-                print(f"Site: {site}\nPassword: {decrypted}")
-            else:
-                print("No entry found for that site.")
-
-        elif action == "3":
-            all_sites = list(password_manager[username]["sites"].keys())
-            if all_sites:
-                print("Saved sites:", ", ".join(all_sites))
-                site = input("Enter the site name to delete: ").strip().lower()
-                delete_password(site, username)
-            else:
-                print("You have no saved sites yet.")
-
-        elif action == "4":
-            all_sites = list(password_manager[username]["sites"].keys())
-            if all_sites:
-                print("Saved sites:", ", ".join(all_sites))
-                site = input("Enter the site name to update: ").strip().lower()
-                update_password(site, username)
-            else:
-                print("You have no saved sites yet.")
-
-        elif action == "0":
-            print("Logging out of password manager.")
+            print("Goodbye!")
             break
         else:
             print("Invalid choice.")
 
 
-def update_password(site, username):
-    if site not in password_manager[username]["sites"]:
-        print("Site not found. Cannot update a non-existent password.")
+# ------- Master password -------
+
+
+def create_master_password():
+    """Prompt user to create a strong master password."""
+    while True:
+        pw = getpass.getpass("Create your master password: ").strip()
+        if not pw:
+            print("Password cannot be empty.")
+            continue
+        valid, issues = check_password_strength(pw)
+        if not valid:
+            print("Password is too weak:")
+            for issue in issues:
+                print(f"  - {issue}")
+            continue
+        confirm = getpass.getpass("Confirm your master password: ").strip()
+        if pw != confirm:
+            print("Passwords do not match. Try again.")
+            continue
+        store_master_hash(hash_password(pw))
+        print("Master password created successfully.")
         return
 
-    fernet = Fernet(load_key())
-    new_password = getpass.getpass("Enter the new password: ").strip()
-    if not new_password:
+
+# ------- Account management -------
+
+
+def create_account(data):
+    """Create a new user account via CLI prompts."""
+    username = input("Enter your username: ").strip()
+    valid, msg = validate_username(username)
+    if not valid:
+        print(msg)
+        return
+
+    pw = getpass.getpass("Enter your password: ").strip()
+    if not pw:
         print("Password cannot be empty.")
         return
 
-    encrypted = fernet.encrypt(new_password.encode()).decode()
-    password_manager[username]["sites"][site] = encrypted
-    save_accounts()
-    print("Password updated successfully.")
+    ok, msg = register_user(data, username, pw)
+    print(msg)
+    if ok:
+        save_data(data)
 
 
-def delete_password(site, username):
-    if site in password_manager[username]["sites"]:
-        del password_manager[username]["sites"][site]
-        save_accounts()
-        print("Password deleted successfully.")
+def login_account(data):
+    """Login and enter the password manager."""
+    username = input("Enter your username: ").strip()
+    pw = getpass.getpass("Enter your password: ").strip()
+
+    ok, msg, fernet_key = authenticate_user(data, username, pw)
+    print(msg)
+    if ok:
+        password_manager_menu(data, username, fernet_key)
+
+
+# ------- Password manager operations -------
+
+
+def password_manager_menu(data, username, fernet_key):
+    """Interactive password manager loop for a logged-in user."""
+    while True:
+        print(f"\n--- Password Manager ({username}) ---")
+        print("1. Save password")
+        print("2. Retrieve password")
+        print("3. List all sites")
+        print("4. Update password")
+        print("5. Delete password")
+        print("6. Generate password")
+        print("0. Logout")
+        action = input("Choice: ").strip()
+
+        if action == "1":
+            save_site_password(data, username, fernet_key)
+        elif action == "2":
+            retrieve_site_password(data, username, fernet_key)
+        elif action == "3":
+            list_sites(data, username)
+        elif action == "4":
+            update_site_password(data, username, fernet_key)
+        elif action == "5":
+            delete_site_password(data, username)
+        elif action == "6":
+            length_str = input("Password length (default 20): ").strip()
+            try:
+                length = int(length_str) if length_str else 20
+            except ValueError:
+                length = 20
+            print(f"Generated password: {generate_password(length)}")
+        elif action == "0":
+            print("Logged out.")
+            break
+        else:
+            print("Invalid choice.")
+
+
+def save_site_password(data, username, fernet_key):
+    """Prompt for site details and store an encrypted credential."""
+    site = input("Enter the site name: ").strip().lower()
+    if not site:
+        print("Site name cannot be empty.")
+        return
+    login = input("Enter the site username/email: ").strip()
+    if not login:
+        print("Site username cannot be empty.")
+        return
+    site_pw = getpass.getpass("Enter the site password: ").strip()
+    if not site_pw:
+        print("Password cannot be empty.")
+        return
+
+    ok, msg = add_credential(data, username, site, login, site_pw, fernet_key)
+    print(msg)
+    if ok:
+        save_data(data)
+
+
+def retrieve_site_password(data, username, fernet_key):
+    """Decrypt and display a site password."""
+    site = input("Enter the site name: ").strip().lower()
+    if not site:
+        print("Site name cannot be empty.")
+        return
+    login, password = get_credential(data, username, site, fernet_key)
+    if login is None and password is None:
+        print("No entry found for that site.")
+        return
+    if password is None:
+        print("Error: Could not decrypt password. Key may have changed.")
+        return
+    print(f"Site: {site}")
+    print(f"Username: {login}")
+    print(f"Password: {password}")
+
+
+def list_sites(data, username):
+    """List all saved site names."""
+    sites = list_credential_sites(data, username)
+    if sites:
+        print("Saved sites:")
+        for s in sites:
+            print(f"  - {s}")
     else:
+        print("No saved sites yet.")
+
+
+def update_site_password(data, username, fernet_key):
+    """Update an existing site password."""
+    site = input("Enter the site name to update: ").strip().lower()
+    new_pw = getpass.getpass("Enter the new password: ").strip()
+    if not new_pw:
+        print("Password cannot be empty.")
+        return
+    ok, msg = update_credential(data, username, site, new_pw, fernet_key)
+    print(msg)
+    if ok:
+        save_data(data)
+
+
+def delete_site_password(data, username):
+    """Delete a site password after confirmation."""
+    site = input("Enter the site name to delete: ").strip().lower()
+    if not site:
+        print("Site name cannot be empty.")
+        return
+    user = data.get("users", {}).get(username)
+    if user is None or site not in user.get("credentials", {}):
         print("Site not found.")
+        return
+    confirm = input(f"Are you sure you want to delete '{site}'? (y/n): ").strip().lower()
+    if confirm == "y":
+        ok, msg = delete_credential(data, username, site)
+        print(msg)
+        if ok:
+            save_data(data)
+    else:
+        print("Cancelled.")
+
 
 if __name__ == "__main__":
     main()
