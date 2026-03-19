@@ -6,14 +6,28 @@ to the core/ package modules.
 """
 
 import getpass
+from datetime import datetime, timedelta, timezone
 
 from core.storage import load_data, save_data, load_master_hash, store_master_hash
-from core.auth import hash_password, verify_password, register_user, authenticate_user
+from core.auth import hash_password, verify_password, register_user, authenticate_user, resolve_username
 from core.vault import (
     add_credential, get_credential, list_credential_sites,
     update_credential, delete_credential,
 )
 from core.password_utils import check_password_strength, generate_password, validate_username
+from core.config import MAX_LOGIN_ATTEMPTS, LOCKOUT_MINUTES
+
+
+def _parse_lockout(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except ValueError:
+        return None
 
 
 def main():
@@ -107,10 +121,36 @@ def login_account(data):
     username = input("Enter your username: ").strip()
     pw = getpass.getpass("Enter your password: ").strip()
 
+    users = data.get("users", {})
+    resolved_username = resolve_username(users, username)
+    user = users.get(resolved_username) if resolved_username else None
+    now = datetime.now(timezone.utc)
+
+    if user is not None:
+        lockout_until = _parse_lockout(user.get("lockout_until"))
+        if lockout_until and now < lockout_until:
+            remaining = int((lockout_until - now).total_seconds() // 60) + 1
+            print(f"Account temporarily locked. Try again in {remaining} minute(s).")
+            return
+
     ok, msg, fernet_key = authenticate_user(data, username, pw)
     print(msg)
+
+    if user is not None:
+        if ok:
+            user["failed_attempts"] = 0
+            user["lockout_until"] = None
+        else:
+            attempts = int(user.get("failed_attempts", 0)) + 1
+            user["failed_attempts"] = attempts
+            if attempts >= MAX_LOGIN_ATTEMPTS:
+                user["lockout_until"] = (now + timedelta(minutes=LOCKOUT_MINUTES)).isoformat()
+
+        if not save_data(data):
+            print("Warning: Failed to persist login security state.")
+
     if ok:
-        password_manager_menu(data, username, fernet_key)
+        password_manager_menu(data, resolved_username or username, fernet_key)
 
 
 # ------- Password manager operations -------

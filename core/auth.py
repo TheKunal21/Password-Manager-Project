@@ -11,6 +11,19 @@ from core.encryption import derive_key
 from core.password_utils import check_password_strength, validate_username
 
 
+def resolve_username(users: dict, username: str) -> str | None:
+    """Resolve a username from users dict using case-insensitive matching."""
+    if not username:
+        return None
+    if username in users:
+        return username
+    lower = username.lower()
+    for existing in users:
+        if existing.lower() == lower:
+            return existing
+    return None
+
+
 def hash_password(password: str) -> str:
     """Hash a password with bcrypt and return the hash as a string."""
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode("utf-8")
@@ -67,14 +80,15 @@ def authenticate_user(data: dict, username: str, password: str) -> tuple[bool, s
         return False, "Username and password are required.", None
 
     users = data.get("users", {})
-    if username not in users:
+    resolved_username = resolve_username(users, username)
+    if resolved_username is None:
         return False, "Invalid username or password.", None
 
-    user_rec = users[username]
+    user_rec = users[resolved_username]
     stored_hash = user_rec.get("password_hash", "")
     if not verify_password(password, stored_hash):
         return False, "Invalid username or password.", None
 
     salt = base64.urlsafe_b64decode(user_rec["salt"].encode("utf-8"))
     fernet_key = derive_key(password, salt)
-    return True, f"Welcome, {username}!", fernet_key
+    return True, f"Welcome, {resolved_username}!", fernet_key

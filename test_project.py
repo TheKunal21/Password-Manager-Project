@@ -23,7 +23,7 @@ from core.encryption import derive_key, encrypt_value, decrypt_value
 from core.password_utils import (
     check_password_strength, generate_password, validate_username, sanitize_input,
 )
-from core.storage import load_data, save_data, load_master_hash, store_master_hash
+from core.storage import load_data, save_data, load_master_hash, store_master_hash, atomic_update
 from core.auth import hash_password, verify_password, register_user, authenticate_user
 from core.vault import (
     add_credential, get_credential, get_all_credentials,
@@ -34,6 +34,7 @@ import core.storage
 
 # CLI wrapper imports
 import project
+from core.config import MAX_LOGIN_ATTEMPTS
 
 
 # ------- Fixtures -------
@@ -233,6 +234,28 @@ class TestDataPersistence:
         data = load_data(filepath=fp)
         assert data == {"users": {}}
 
+    def test_load_corrupted_json_creates_backup(self, tmp_path):
+        fp = tmp_path / "data.json"
+        fp.write_text("{broken", encoding="utf-8")
+        data = load_data(filepath=str(fp))
+        assert data == {"users": {}}
+        backups = list(tmp_path.glob("data.json.corrupt.*"))
+        assert len(backups) == 1
+
+    def test_atomic_update_callback_exception(self, tmp_path):
+        fp = tmp_path / "data.json"
+        original = {"users": {"alice": {"password_hash": "x", "salt": "y", "credentials": {}}}}
+        save_data(original, filepath=str(fp))
+
+        def bad_update(_data):
+            raise RuntimeError("boom")
+
+        ok, result = atomic_update(bad_update, filepath=str(fp))
+        assert ok is False
+        assert isinstance(result, RuntimeError)
+        loaded = load_data(filepath=str(fp))
+        assert loaded == original
+
 
 class TestMasterHash:
     def test_load_missing(self):
@@ -301,6 +324,14 @@ class TestAuth:
         data = {"users": {}}
         ok, msg, key = authenticate_user(data, "nobody", "MyStr0ng!Pass1")
         assert ok is False
+
+    def test_authenticate_case_insensitive_username(self):
+        data = {"users": {}}
+        register_user(data, "Alice", "MyStr0ng!Pass1")
+        ok, msg, key = authenticate_user(data, "alice", "MyStr0ng!Pass1")
+        assert ok is True
+        assert "Alice" in msg
+        assert key is not None
 
 
 # ======= core.vault tests =======
@@ -536,3 +567,35 @@ class TestCLISitePasswords:
         output = capsys.readouterr().out
         assert "a.com" in output
         assert "b.com" in output
+
+
+class TestCLILoginSecurity:
+    def test_login_is_case_insensitive(self, monkeypatch):
+        data = {"users": {}}
+        register_user(data, "Alice", "MyStr0ng!Pass1")
+
+        called = {"username": None}
+
+        def fake_menu(_data, username, _key):
+            called["username"] = username
+
+        monkeypatch.setattr(project, "password_manager_menu", fake_menu)
+        monkeypatch.setattr("builtins.input", lambda prompt="": "alice")
+        monkeypatch.setattr("getpass.getpass", lambda prompt="": "MyStr0ng!Pass1")
+
+        project.login_account(data)
+        assert called["username"] == "Alice"
+
+    def test_cli_lockout_after_repeated_failures(self, monkeypatch):
+        data = {"users": {}}
+        register_user(data, "tester", "MyStr0ng!Pass1")
+
+        monkeypatch.setattr("builtins.input", lambda prompt="": "tester")
+        monkeypatch.setattr("getpass.getpass", lambda prompt="": "WrongPass1!")
+
+        for _ in range(MAX_LOGIN_ATTEMPTS):
+            project.login_account(data)
+
+        user = data["users"]["tester"]
+        assert user["failed_attempts"] >= MAX_LOGIN_ATTEMPTS
+        assert user.get("lockout_until") is not None

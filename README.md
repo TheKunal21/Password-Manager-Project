@@ -2,6 +2,14 @@
 
 A **production-ready, offline password manager** built with Python. Features both a modern **Streamlit web interface** and a **command-line interface**, with military-grade encryption and comprehensive security practices.
 
+## 💼 Portfolio Highlights
+
+- Designed with a **clean modular architecture** (`core/` business logic + thin UI layers)
+- Implemented **defense-in-depth security** (bcrypt, PBKDF2, Fernet, lockout, timeout)
+- Added **resilience protections** (atomic writes, file locking, corruption backup strategy)
+- Covered behavior with a **comprehensive automated test suite** (70+ tests)
+- Built for **offline-first privacy** with zero cloud/network dependency
+
 ---
 
 ## ✨ Features
@@ -46,6 +54,23 @@ The project follows a **modular architecture** with a shared `core/` package con
 └── README.md               # This file
 ```
 
+### Data & Control Flow
+
+```mermaid
+flowchart TD
+	U[User] --> S[Streamlit UI: app.py]
+	U --> C[CLI: project.py]
+	S --> A[core/auth.py]
+	S --> V[core/vault.py]
+	C --> A
+	C --> V
+	A --> E[core/encryption.py]
+	V --> E
+	A --> ST[core/storage.py]
+	V --> ST
+	ST --> D[(data.json)]
+```
+
 ### Module Responsibilities
 
 | Module | Purpose |
@@ -76,6 +101,7 @@ The project follows a **modular architecture** with a shared `core/` package con
 - ✅ Rainbow tables: Per-user random salts
 - ✅ Data at rest: AES-256 encryption
 - ✅ File corruption: Atomic writes + file locking
+- ✅ Data recovery safety: Corrupt-file backup before reset
 - ✅ Session hijacking: Auto timeout + explicit logout
 - ✅ Weak passwords: Enforced strength requirements
 

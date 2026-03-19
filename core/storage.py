@@ -114,7 +114,11 @@ def atomic_update(update_fn, filepath: str | None = None) -> tuple[bool, object]
 
     def _run() -> tuple[bool, object]:
         data = _read_data_unlocked(filepath)
-        result = update_fn(data)
+        try:
+            result = update_fn(data)
+        except Exception as e:
+            logger.exception("Atomic update callback failed for %s", filepath)
+            return False, e
         ok = _write_data_unlocked(data, filepath)
         return ok, result
 
