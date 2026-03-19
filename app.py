@@ -10,7 +10,7 @@ from core.config import (
     SESSION_TIMEOUT_MINUTES, MAX_LOGIN_ATTEMPTS, LOCKOUT_MINUTES,
     MIN_PASSWORD_LENGTH, LOG_FILE,
 )
-from core.storage import load_data, save_data
+from core.storage import load_data, atomic_update
 from core.auth import register_user, authenticate_user
 from core.vault import (
     add_credential, delete_credential, change_master_password, delete_account,
@@ -37,31 +37,16 @@ st.set_page_config(page_title="Secure Password Vault", page_icon="🔒", layout=
 # ------- Streamlit-specific helpers -------
 
 
-def get_login_attempts_key(username: str) -> str:
-    return f"login_attempts_{username}"
-
-
-def get_lockout_key(username: str) -> str:
-    return f"lockout_until_{username}"
-
-
-def is_locked_out(username: str) -> bool:
-    lockout_key = get_lockout_key(username)
-    if lockout_key in st.session_state:
-        lockout_until = st.session_state[lockout_key]
-        if datetime.now(timezone.utc) < lockout_until:
-            return True
-        del st.session_state[lockout_key]
-        st.session_state[get_login_attempts_key(username)] = 0
-    return False
-
-
-def record_failed_login(username: str):
-    key = get_login_attempts_key(username)
-    st.session_state[key] = st.session_state.get(key, 0) + 1
-    if st.session_state[key] >= MAX_LOGIN_ATTEMPTS:
-        st.session_state[get_lockout_key(username)] = datetime.now(timezone.utc) + timedelta(minutes=LOCKOUT_MINUTES)
-        logger.warning("Account '%s' locked out after %d failed attempts.", username, MAX_LOGIN_ATTEMPTS)
+def _parse_lockout(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except ValueError:
+        return None
 
 
 def check_session_timeout() -> bool:
@@ -133,10 +118,14 @@ if not st.session_state.get("logged_in"):
             elif new_pass != confirm_pass:
                 st.sidebar.error("Passwords do not match.")
             else:
-                data = load_data(use_lock=True)
-                ok, msg = register_user(data, new_user, new_pass)
-                if ok:
-                    save_data(data, use_lock=True)
+                def _register(data: dict):
+                    return register_user(data, new_user, new_pass)
+
+                saved, result = atomic_update(_register)
+                ok, msg = result
+                if not saved:
+                    st.sidebar.error("Failed to save data. Please try again.")
+                elif ok:
                     logger.info("New user registered: %s", new_user)
                     st.sidebar.success("User registered. Please log in.")
                 else:
@@ -150,21 +139,50 @@ if not st.session_state.get("logged_in"):
         if st.sidebar.button("Login"):
             if not username or not password:
                 st.sidebar.error("Please enter both username and password.")
-            elif is_locked_out(username):
-                st.sidebar.error(f"Account temporarily locked. Try again in {LOCKOUT_MINUTES} minutes.")
             else:
-                data = load_data(use_lock=True)
-                ok, msg, fernet_key = authenticate_user(data, username, password)
-                if ok:
+                def _login(data: dict):
+                    users = data.get("users", {})
+                    user = users.get(username)
+                    now = datetime.now(timezone.utc)
+                    if user is not None:
+                        lockout_until = _parse_lockout(user.get("lockout_until"))
+                        if lockout_until and now < lockout_until:
+                            remaining = int((lockout_until - now).total_seconds() // 60) + 1
+                            return "locked", f"Account temporarily locked. Try again in {remaining} minute(s).", None
+
+                    ok_local, msg_local, key_local = authenticate_user(data, username, password)
+
+                    if ok_local and user is not None:
+                        user["failed_attempts"] = 0
+                        user["lockout_until"] = None
+                        return "ok", msg_local, key_local
+
+                    if user is not None:
+                        attempts = int(user.get("failed_attempts", 0)) + 1
+                        user["failed_attempts"] = attempts
+                        if attempts >= MAX_LOGIN_ATTEMPTS:
+                            user["lockout_until"] = (
+                                datetime.now(timezone.utc) + timedelta(minutes=LOCKOUT_MINUTES)
+                            ).isoformat()
+                            logger.warning("Account '%s' locked out after %d failed attempts.", username, MAX_LOGIN_ATTEMPTS)
+                    return "fail", msg_local, None
+
+                saved, login_result = atomic_update(_login)
+                if not saved:
+                    st.sidebar.error("Failed to save login state. Please try again.")
+                    st.stop()
+
+                status, msg, fernet_key = login_result
+                if status == "ok":
                     st.session_state["logged_in"] = True
                     st.session_state["user"] = username
                     st.session_state["key"] = fernet_key
                     st.session_state["last_activity"] = datetime.now(timezone.utc)
-                    st.session_state[get_login_attempts_key(username)] = 0
                     logger.info("User logged in: %s", username)
                     st.rerun()
+                elif status == "locked":
+                    st.sidebar.error(msg)
                 else:
-                    record_failed_login(username)
                     logger.warning("Failed login attempt for user: %s", username)
                     st.sidebar.error(msg)
 
@@ -240,18 +258,21 @@ if st.session_state.get("logged_in"):
             site_pass = st.text_input("Site password", type="password", max_chars=256)
 
         if st.button("💾 Save Credential"):
-            data = load_data(use_lock=True)
-            if current_user not in data.get("users", {}):
-                st.error("Account not found. Please log in again.")
+            def _add(data: dict):
+                if current_user not in data.get("users", {}):
+                    return False, "Account not found. Please log in again."
+                return add_credential(data, current_user, site, site_user, site_pass, key)
+
+            saved, result = atomic_update(_add)
+            ok, msg = result
+            if not saved:
+                st.error("Failed to save data. Please try again.")
+            elif ok:
+                st.session_state.pop("generated_pw", None)
+                logger.info("Credential added for site '%s' by user '%s'.", site, current_user)
+                st.success(msg)
             else:
-                ok, msg = add_credential(data, current_user, site, site_user, site_pass, key)
-                if ok:
-                    save_data(data, use_lock=True)
-                    st.session_state.pop("generated_pw", None)
-                    logger.info("Credential added for site '%s' by user '%s'.", site, current_user)
-                    st.success(msg)
-                else:
-                    st.warning(msg)
+                st.warning(msg)
 
     # ------- Generate Password -------
     elif menu == "Generate Password":
@@ -273,10 +294,14 @@ if st.session_state.get("logged_in"):
             site_to_delete = st.selectbox("Select site to delete", sorted(creds.keys()))
             confirm = st.checkbox(f"I confirm I want to permanently delete **{site_to_delete}**")
             if st.button("Delete", disabled=not confirm):
-                data = load_data(use_lock=True)
-                ok, msg = delete_credential(data, current_user, site_to_delete)
-                if ok:
-                    save_data(data, use_lock=True)
+                def _delete(data: dict):
+                    return delete_credential(data, current_user, site_to_delete)
+
+                saved, result = atomic_update(_delete)
+                ok, msg = result
+                if not saved:
+                    st.error("Failed to save data. Please try again.")
+                elif ok:
                     logger.info("Credential deleted for site '%s' by user '%s'.", site_to_delete, current_user)
                     st.success(msg)
                     st.rerun()
@@ -299,10 +324,14 @@ if st.session_state.get("logged_in"):
             elif new_pass != confirm_new:
                 st.error("New passwords do not match.")
             else:
-                data = load_data(use_lock=True)
-                ok, msg, _ = change_master_password(data, current_user, old_pass, new_pass)
-                if ok:
-                    save_data(data, use_lock=True)
+                def _change_password(data: dict):
+                    return change_master_password(data, current_user, old_pass, new_pass)
+
+                saved, result = atomic_update(_change_password)
+                ok, msg, _ = result
+                if not saved:
+                    st.error("Failed to save data. Please try again.")
+                elif ok:
                     logger.info("Master password changed for user '%s'.", current_user)
                     st.success(msg)
                     logout()
@@ -317,10 +346,14 @@ if st.session_state.get("logged_in"):
         del_pass = st.text_input("Enter your master password to confirm", type="password", max_chars=128)
         confirm_del = st.checkbox("I understand this is irreversible")
         if st.button("🗑️ Delete My Account", disabled=not confirm_del):
-            data = load_data(use_lock=True)
-            ok, msg = delete_account(data, current_user, del_pass)
-            if ok:
-                save_data(data, use_lock=True)
+            def _delete_account(data: dict):
+                return delete_account(data, current_user, del_pass)
+
+            saved, result = atomic_update(_delete_account)
+            ok, msg = result
+            if not saved:
+                st.error("Failed to save data. Please try again.")
+            elif ok:
                 logger.info("Account deleted: %s", current_user)
                 st.success(msg)
                 logout()

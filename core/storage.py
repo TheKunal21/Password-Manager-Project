@@ -3,6 +3,7 @@
 import json
 import os
 import logging
+from datetime import datetime, timezone
 
 from core.config import DATA_FILE, DATA_LOCK, MASTER_FILE
 
@@ -15,6 +16,62 @@ except ImportError:
     FileLock = None
 
 
+def _lock_path(filepath: str) -> str:
+    """Return the lock path for a given data file path."""
+    return DATA_LOCK if filepath == DATA_FILE else f"{filepath}.lock"
+
+
+def _backup_corrupt_file(filepath: str, reason: str) -> None:
+    """Move a corrupt or invalid data file aside for recovery."""
+    if not os.path.exists(filepath):
+        return
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_path = f"{filepath}.corrupt.{timestamp}"
+    try:
+        os.replace(filepath, backup_path)
+        logger.error("Backed up invalid data file '%s' to '%s' (%s).", filepath, backup_path, reason)
+    except OSError as e:
+        logger.error("Failed to backup invalid data file '%s': %s", filepath, e)
+
+
+def _read_data_unlocked(filepath: str) -> dict:
+    """Read and validate data file without acquiring a lock."""
+    if not os.path.exists(filepath):
+        return {"users": {}}
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            if not content:
+                return {"users": {}}
+            parsed = json.loads(content)
+            if not isinstance(parsed, dict) or "users" not in parsed:
+                _backup_corrupt_file(filepath, "invalid root structure")
+                return {"users": {}}
+            if not isinstance(parsed["users"], dict):
+                _backup_corrupt_file(filepath, "'users' is not an object")
+                return {"users": {}}
+            return parsed
+    except json.JSONDecodeError:
+        _backup_corrupt_file(filepath, "json decode error")
+        return {"users": {}}
+    except OSError as e:
+        logger.error("Error reading %s: %s", filepath, e)
+        return {"users": {}}
+
+
+def _write_data_unlocked(data: dict, filepath: str) -> bool:
+    """Write data atomically without acquiring a lock."""
+    tmp_file = filepath + ".tmp"
+    try:
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_file, filepath)
+        return True
+    except OSError as e:
+        logger.error("Error saving %s: %s", filepath, e)
+        return False
+
+
 def load_data(filepath: str | None = None, use_lock: bool = False) -> dict:
     """Load user data from a JSON file.
 
@@ -24,34 +81,11 @@ def load_data(filepath: str | None = None, use_lock: bool = False) -> dict:
     if filepath is None:
         filepath = DATA_FILE
 
-    def _read():
-        if not os.path.exists(filepath):
-            return {"users": {}}
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-                if not content:
-                    return {"users": {}}
-                parsed = json.loads(content)
-                if not isinstance(parsed, dict) or "users" not in parsed:
-                    logger.warning("%s has invalid structure; resetting.", filepath)
-                    return {"users": {}}
-                if not isinstance(parsed["users"], dict):
-                    logger.warning("%s 'users' is not a dict; resetting.", filepath)
-                    return {"users": {}}
-                return parsed
-        except json.JSONDecodeError:
-            logger.error("%s is corrupted; resetting.", filepath)
-            return {"users": {}}
-        except OSError as e:
-            logger.error("Error reading %s: %s", filepath, e)
-            return {"users": {}}
-
     if use_lock and FileLock is not None:
-        lock = FileLock(DATA_LOCK, timeout=5)
+        lock = FileLock(_lock_path(filepath), timeout=5)
         with lock:
-            return _read()
-    return _read()
+            return _read_data_unlocked(filepath)
+    return _read_data_unlocked(filepath)
 
 
 def save_data(data: dict, filepath: str | None = None, use_lock: bool = False) -> bool:
@@ -61,23 +95,34 @@ def save_data(data: dict, filepath: str | None = None, use_lock: bool = False) -
     """
     if filepath is None:
         filepath = DATA_FILE
-    tmp_file = filepath + ".tmp"
-
-    def _write():
-        try:
-            with open(tmp_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-            os.replace(tmp_file, filepath)
-            return True
-        except OSError as e:
-            logger.error("Error saving %s: %s", filepath, e)
-            return False
 
     if use_lock and FileLock is not None:
-        lock = FileLock(DATA_LOCK, timeout=5)
+        lock = FileLock(_lock_path(filepath), timeout=5)
         with lock:
-            return _write()
-    return _write()
+            return _write_data_unlocked(data, filepath)
+    return _write_data_unlocked(data, filepath)
+
+
+def atomic_update(update_fn, filepath: str | None = None) -> tuple[bool, object]:
+    """Run read-modify-write as one critical section under a single lock.
+
+    `update_fn` receives the loaded data dict and may mutate it in place.
+    Returns (save_success, update_result).
+    """
+    if filepath is None:
+        filepath = DATA_FILE
+
+    def _run() -> tuple[bool, object]:
+        data = _read_data_unlocked(filepath)
+        result = update_fn(data)
+        ok = _write_data_unlocked(data, filepath)
+        return ok, result
+
+    if FileLock is not None:
+        lock = FileLock(_lock_path(filepath), timeout=5)
+        with lock:
+            return _run()
+    return _run()
 
 
 def load_master_hash(filepath: str | None = None) -> str | None:

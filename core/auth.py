@@ -51,6 +51,8 @@ def register_user(data: dict, username: str, password: str) -> tuple[bool, str]:
         "password_hash": hash_password(password),
         "salt": base64.urlsafe_b64encode(salt).decode("utf-8"),
         "credentials": {},
+        "failed_attempts": 0,
+        "lockout_until": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     return True, "User registered successfully."

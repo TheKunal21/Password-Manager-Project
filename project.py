@@ -98,7 +98,8 @@ def create_account(data):
     ok, msg = register_user(data, username, pw)
     print(msg)
     if ok:
-        save_data(data)
+        if not save_data(data):
+            print("Error: Failed to persist account data.")
 
 
 def login_account(data):
@@ -170,7 +171,8 @@ def save_site_password(data, username, fernet_key):
     ok, msg = add_credential(data, username, site, login, site_pw, fernet_key)
     print(msg)
     if ok:
-        save_data(data)
+        if not save_data(data):
+            print("Error: Failed to persist credential data.")
 
 
 def retrieve_site_password(data, username, fernet_key):
@@ -212,7 +214,8 @@ def update_site_password(data, username, fernet_key):
     ok, msg = update_credential(data, username, site, new_pw, fernet_key)
     print(msg)
     if ok:
-        save_data(data)
+        if not save_data(data):
+            print("Error: Failed to persist credential update.")
 
 
 def delete_site_password(data, username):
@@ -230,7 +233,8 @@ def delete_site_password(data, username):
         ok, msg = delete_credential(data, username, site)
         print(msg)
         if ok:
-            save_data(data)
+            if not save_data(data):
+                print("Error: Failed to persist credential deletion.")
     else:
         print("Cancelled.")
 

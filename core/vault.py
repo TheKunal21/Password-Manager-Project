@@ -9,9 +9,14 @@ from core.auth import hash_password, verify_password
 from core.password_utils import check_password_strength
 
 
+def _normalize_site(site: str) -> str:
+    return site.strip().lower()
+
+
 def add_credential(data: dict, username: str, site: str, login: str,
                    password: str, fernet_key: bytes) -> tuple[bool, str]:
     """Encrypt and store a new credential. Returns (success, message)."""
+    site = _normalize_site(site)
     if not site:
         return False, "Site name is required."
     if not login:
@@ -38,6 +43,7 @@ def add_credential(data: dict, username: str, site: str, login: str,
 def get_credential(data: dict, username: str, site: str,
                    fernet_key: bytes) -> tuple[str | None, str | None]:
     """Decrypt and return (login, password) for a site; None on failure."""
+    site = _normalize_site(site)
     user = data.get("users", {}).get(username)
     if user is None:
         return None, None
@@ -77,6 +83,7 @@ def update_credential(data: dict, username: str, site: str,
                       new_password: str, fernet_key: bytes,
                       new_login: str | None = None) -> tuple[bool, str]:
     """Update an existing credential's password (and optionally login)."""
+    site = _normalize_site(site)
     if not new_password:
         return False, "Password cannot be empty."
     user = data.get("users", {}).get(username)
@@ -94,6 +101,7 @@ def update_credential(data: dict, username: str, site: str,
 
 def delete_credential(data: dict, username: str, site: str) -> tuple[bool, str]:
     """Delete a credential. Returns (success, message)."""
+    site = _normalize_site(site)
     user = data.get("users", {}).get(username)
     if user is None:
         return False, "Account not found."
